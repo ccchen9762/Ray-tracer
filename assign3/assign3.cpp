@@ -110,6 +110,14 @@ void plot_pixel_display(int x, int y, unsigned char r, unsigned char g, unsigned
 void plot_pixel_jpeg(int x, int y, unsigned char r, unsigned char g, unsigned char b);
 void plot_pixel(int x, int y, unsigned char r, unsigned char g, unsigned char b);
 
+double triangleIntersection() {
+
+}
+
+double sphereIntersection() {
+
+}
+
 //MODIFY THIS FUNCTION
 void draw_scene() {
 	glPointSize(2.0);
@@ -130,10 +138,13 @@ void draw_scene() {
 			ray.normalize();
 			//printf("%f, %f, %f \n", ray.x, ray.y, ray.z);
 
+			double t = 1000.0;
+
 			vec3 normal;
 			double kd[3] = { 0.0,0.0,0.0 };
 			double ks[3] = { 0.0,0.0,0.0 };
-			
+			double shininess = 0.0;
+
 			//check intersections
 			for (int i = 0; i < num_spheres; i++) {
 				double b = 2 * (ray.x * -spheres[i].position[0] + ray.y * -spheres[i].position[1] + ray.z * -spheres[i].position[2]);
@@ -142,13 +153,26 @@ void draw_scene() {
 				if (pow(b, 2) - 4 * c > 0) {
 					double t0 = (-b - sqrt(pow(b, 2) - 4 * c)) / 2, t1 = (-b + sqrt(pow(b, 2) - 4 * c)) / 2;
 					if (t0 >= 0 && t1 >= 0) {
+						if (t > std::min(t0, t1)) {
+							t = std::min(t0, t1);
+
+							normal.x = t * ray.x - spheres[i].position[0];
+							normal.y = t * ray.y - spheres[i].position[1];
+							normal.z = t * ray.z - spheres[i].position[2];
+							normal.normalize();
+
+							kd[0] = spheres[i].color_diffuse[0], kd[1] = spheres[i].color_diffuse[1], kd[2] = spheres[i].color_diffuse[2];
+							ks[0] = spheres[i].color_specular[0], ks[1] = spheres[i].color_specular[1], ks[2] = spheres[i].color_specular[2];
+							shininess = spheres[i].shininess;
+						}
+
 						//ambient light
-						r0 = ambient_light[0], g0 = ambient_light[1], b0 = ambient_light[2];
+						/*r0 = ambient_light[0], g0 = ambient_light[1], b0 = ambient_light[2];
 
 						//intersection point
 						double t = std::min(t0, t1);
 
-						//get sphere normal 
+						//get sphere normal
 						vec3 normal(t * ray.x - spheres[i].position[0], t * ray.y - spheres[i].position[1], t * ray.z - spheres[i].position[2]);
 						normal.normalize();
 
@@ -177,7 +201,7 @@ void draw_scene() {
 								g0 += spheres[i].color_specular[1] * lights[j].color[1] * pow(VdotR, spheres[i].shininess);
 								b0 += spheres[i].color_specular[2] * lights[j].color[2] * pow(VdotR, spheres[i].shininess);
 							}
-						}
+						}*/
 					}
 				}
 			}
@@ -189,38 +213,58 @@ void draw_scene() {
 				vec3 v(triangles[i].v[2].position[0] - triangles[i].v[0].position[0],
 					   triangles[i].v[2].position[1] - triangles[i].v[0].position[1],
 					   triangles[i].v[2].position[2] - triangles[i].v[0].position[2]);
-				vec3 normal;
-				crossProduct(u, v, normal);
-				normal.normalize();
+				vec3 surfaceNormal;
+				crossProduct(u, v, surfaceNormal);
+				surfaceNormal.normalize();
 
 				//ray direction & surface normal
-				double NdotD = dotProduct(normal, ray);
+				double NdotD = dotProduct(surfaceNormal, ray);
 				if (NdotD != 0) {
-					double d = (normal.x * triangles[i].v[0].position[0] +
-								normal.y * triangles[i].v[0].position[1] +
-								normal.z * triangles[i].v[0].position[2]) * -1;
-					double t = -d / NdotD; // n dot p0 = 0
+					double d = (surfaceNormal.x * triangles[i].v[0].position[0] +
+								surfaceNormal.y * triangles[i].v[0].position[1] +
+								surfaceNormal.z * triangles[i].v[0].position[2]) * -1;
+					double t0 = -d / NdotD; // n dot p0 = 0
 
-					if (t > 0) {	//in front of camera
+					if (t0 > 0) {	//in front of camera
 						//use area to do inside test
 						double x1 = triangles[i].v[0].position[0], y1 = triangles[i].v[0].position[1], // triangle vertex
 							x2 = triangles[i].v[1].position[0], y2 = triangles[i].v[1].position[1],
 							x3 = triangles[i].v[2].position[0], y3 = triangles[i].v[2].position[1],
-							xp = t * ray.x, yp = t * ray.y; // intersection point
+							xp = t0 * ray.x, yp = t0 * ray.y; // intersection point
 						double areaTotal = abs((x2 - x1) * (y3 - y1) - (y2 - y1) * (x3 - x1));
 						double areaP1P2P = abs((x2 - xp) * (y1 - yp) - (y2 - yp) * (x1 - xp));
 						double areaP2P3P = abs((x2 - xp) * (y3 - yp) - (y2 - yp) * (x3 - xp));
 						double areaP1P3P = abs((x1 - xp) * (y3 - yp) - (y1 - yp) * (x3 - xp));
 						if (abs(areaP1P2P + areaP2P3P + areaP1P3P - areaTotal) < 0.01) {
-							//ambient light
-							r0 = ambient_light[0], g0 = ambient_light[1], b0 = ambient_light[2];
+							if (t > t0) {
+								t = t0;
 
+								double alpha = areaP2P3P / areaTotal;
+								double beta = areaP1P3P / areaTotal;
+								double gamma = 1 - alpha - beta;
+
+								normal.x = alpha * triangles[i].v[0].normal[0] + beta * triangles[i].v[1].normal[0] + gamma * triangles[i].v[2].normal[0];
+								normal.y = alpha * triangles[i].v[0].normal[1] + beta * triangles[i].v[1].normal[1] + gamma * triangles[i].v[2].normal[1];
+								normal.z = alpha * triangles[i].v[0].normal[2] + beta * triangles[i].v[1].normal[2] + gamma * triangles[i].v[2].normal[2];
+								normal.normalize();
+
+								kd[0] = alpha * triangles[i].v[0].color_diffuse[0] + beta * triangles[i].v[1].color_diffuse[0] + gamma * triangles[i].v[2].color_diffuse[0];
+								kd[1] = alpha * triangles[i].v[0].color_diffuse[1] + beta * triangles[i].v[1].color_diffuse[1] + gamma * triangles[i].v[2].color_diffuse[1];
+								kd[2] = alpha * triangles[i].v[0].color_diffuse[2] + beta * triangles[i].v[1].color_diffuse[2] + gamma * triangles[i].v[2].color_diffuse[2];
+								ks[0] = alpha * triangles[i].v[0].color_specular[0] + beta * triangles[i].v[1].color_specular[0] + gamma * triangles[i].v[2].color_specular[0];
+								ks[1] = alpha * triangles[i].v[0].color_specular[1] + beta * triangles[i].v[1].color_specular[1] + gamma * triangles[i].v[2].color_specular[1];
+								ks[2] = alpha * triangles[i].v[0].color_specular[2] + beta * triangles[i].v[1].color_specular[2] + gamma * triangles[i].v[2].color_specular[2];
+
+								shininess = alpha * triangles[i].v[0].shininess + beta * triangles[i].v[1].shininess + gamma * triangles[i].v[2].shininess;
+							}
+							/*
 							double alpha = areaP2P3P / areaTotal;
 							double beta = areaP1P3P / areaTotal;
 							double gamma = 1 - alpha - beta;
 							vec3 interpolateNormal(alpha * triangles[i].v[0].normal[0] + beta * triangles[i].v[1].normal[0] + gamma * triangles[i].v[2].normal[0],
 												   alpha * triangles[i].v[0].normal[1] + beta * triangles[i].v[1].normal[1] + gamma * triangles[i].v[2].normal[1],
 												   alpha * triangles[i].v[0].normal[2] + beta * triangles[i].v[1].normal[2] + gamma * triangles[i].v[2].normal[2]);
+							 interpolateNormal.normalize();
 							double kd[3] = { alpha * triangles[i].v[0].color_diffuse[0] + beta * triangles[i].v[1].color_diffuse[0] + gamma * triangles[i].v[2].color_diffuse[0],
 												   alpha * triangles[i].v[0].color_diffuse[1] + beta * triangles[i].v[1].color_diffuse[1] + gamma * triangles[i].v[2].color_diffuse[1],
 												   alpha * triangles[i].v[0].color_diffuse[2] + beta * triangles[i].v[1].color_diffuse[2] + gamma * triangles[i].v[2].color_diffuse[2] };
@@ -252,14 +296,48 @@ void draw_scene() {
 									g0 += ks[1] * lights[j].color[1] * pow(VdotR, triangles[i].v[0].shininess);
 									b0 += ks[2] * lights[j].color[2] * pow(VdotR, triangles[i].v[0].shininess);
 								}
-							}
+							}*/
 						}
 					}
 				}
 			}
-			if (r0 > 1) { r0 = 1; }
-			if (g0 > 1) { g0 = 1; }
-			if (b0 > 1) { b0 = 1; }
+
+			if (t != 1000.0) {
+				//ambient light
+				r0 = ambient_light[0], g0 = ambient_light[1], b0 = ambient_light[2];
+
+				//diffuse & specular
+				for (int j = 0; j < num_lights; j++) {
+					//light vector
+					vec3 lightVector(lights[j].position[0] - t * ray.x, lights[j].position[1] - t * ray.y, lights[j].position[2] - t * ray.z);
+					lightVector.normalize();
+					double NdotL = dotProduct(normal, lightVector);
+					//printf("%f\n", NdotL);
+					if (NdotL > 0) {
+						r0 += kd[0] * lights[j].color[0] * NdotL;
+						g0 += kd[1] * lights[j].color[1] * NdotL;
+						b0 += kd[2] * lights[j].color[2] * NdotL;
+					}
+
+					//reflected vector
+					vec3 reflectVector(2 * NdotL * normal.x - lightVector.x,
+									   2 * NdotL * normal.y - lightVector.y,
+									   2 * NdotL * normal.z - lightVector.z);
+					reflectVector.normalize();
+					vec3 viewVector(-ray.x, -ray.y, -ray.z);
+					double VdotR = dotProduct(viewVector, reflectVector);
+					if (VdotR > 0) {
+						r0 += ks[0] * lights[j].color[0] * pow(VdotR, shininess);
+						g0 += ks[1] * lights[j].color[1] * pow(VdotR, shininess);
+						b0 += ks[2] * lights[j].color[2] * pow(VdotR, shininess);
+					}
+				}
+
+				if (r0 > 1) { r0 = 1; }
+				if (g0 > 1) { g0 = 1; }
+				if (b0 > 1) { b0 = 1; }
+			}
+
 			unsigned char r = r0 * 255;
 			unsigned char g = g0 * 255;
 			unsigned char b = b0 * 255;
