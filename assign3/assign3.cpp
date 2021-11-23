@@ -29,6 +29,7 @@ enum class PLOTMODE { MODE_DISPLAY = 1, MODE_JPEG = 2 };
 PLOTMODE mode = PLOTMODE::MODE_DISPLAY;
 
 //you may want to make these smaller for debugging purposes
+//const int WIDTH = 960, HEIGHT = 720;
 const int WIDTH = 640, HEIGHT = 480;
 //const int WIDTH = 320, HEIGHT = 240;
 const float ASPECT_RATIO = static_cast<float>(WIDTH) / static_cast<float>(HEIGHT);
@@ -113,10 +114,11 @@ bool triangleIntersection(double x0, double y0, double z0, const vec3& ray, vec3
 			double d = (triangles[i].surfaceNormal.x * triangles[i].v[0].position[0] +
 						triangles[i].surfaceNormal.y * triangles[i].v[0].position[1] +
 						triangles[i].surfaceNormal.z * triangles[i].v[0].position[2]) * -1;
-			double t0 = -(triangles[i].surfaceNormal.x * x0 + triangles[i].surfaceNormal.y * y0 +
+			double t0 = -(triangles[i].surfaceNormal.x * x0 +
+						  triangles[i].surfaceNormal.y * y0 +
 						  triangles[i].surfaceNormal.z * z0 + d) / NdotD;
 
-			if (t0 > 0.0001) {		//in front of camera, use 0.001 instead of 0 to prevent "self block"
+			if (t0 > 0.0001) {		//in front of camera, use 0.0001 instead of 0 to prevent "self block"
 				// triangle vertex
 				double x1 = triangles[i].v[0].position[0], y1 = triangles[i].v[0].position[1], z1 = triangles[i].v[0].position[2],
 					x2 = triangles[i].v[1].position[0], y2 = triangles[i].v[1].position[1], z2 = triangles[i].v[1].position[2],
@@ -204,13 +206,22 @@ bool sphereIntersection(double x0, double y0, double z0, const vec3& ray, vec3& 
 	return intersect;
 }
 
+bool findIntersection(double x0, double y0, double z0, const vec3& ray, vec3& normal,
+					  double ks[3], double kd[3], double& shininess, double& t) {
+	bool triangle = triangleIntersection(x0, y0, z0, ray, normal, ks, kd, shininess, t);
+	bool sphere = sphereIntersection(x0, y0, z0, ray, normal, ks, kd, shininess, t);
+
+	return triangle || sphere;
+}
+
 //MODIFY THIS FUNCTION
 void draw_scene() {
 	glPointSize(2.0);
-	glBegin(GL_POINTS);
+
 
 	//for every pixel
 	for (unsigned int x = 0; x < WIDTH; x++) {
+		glBegin(GL_POINTS);
 		for (unsigned int y = 0; y < HEIGHT; y++) {
 			//pixel coordinates
 			double x0 = -xMax + 2 * xMax * (static_cast<float>(x) / static_cast<float>(WIDTH));
@@ -234,18 +245,62 @@ void draw_scene() {
 			double shininess = 0.0;
 
 			int reflection = 2;
-			while ( reflection &&
-				(sphereIntersection(startX, startY, startZ, ray, normal, ks, kd, shininess, t) ||
-					triangleIntersection(startX, startY, startZ, ray, normal, ks, kd, shininess, t))) {
+			while (reflection && findIntersection(startX, startY, startZ, ray, normal, ks, kd, shininess, t)) {
 				--reflection;
 				//ambient light
 				localR = ambient_light[0], localG = ambient_light[1], localB = ambient_light[2];
 
 				//diffuse & specular
 				for (int j = 0; j < num_lights; j++) {
+
+					//soft shadows
+					vec3 lightVector;
+					int lightArea = 1, lightIntensity = pow(lightArea, 2);
+					for (int k = -lightArea / 2; k < (lightArea+1) / 2; k++) {
+						for (int l = -lightArea / 2; l < (lightArea+1) / 2; l++) {
+							lightVector.x = lights[j].position[0] + 0.01 * k - (startX + t * ray.x);
+							lightVector.y = lights[j].position[1] + 0.01 * l - (startY + t * ray.y);
+							lightVector.z = lights[j].position[2] - (startZ + t * ray.z);
+							double scalarToLight = getScalar(lightVector);
+							lightVector.normalize();
+
+							vec3 normal2;
+							vec3 toLight(lightVector);
+							double kd2[3] = { 0.0,0.0,0.0 };
+							double ks2[3] = { 0.0,0.0,0.0 };
+							double shininess2 = 0.0;
+							double t2 = 1000.0;
+
+							if (!(findIntersection(startX + t * ray.x, startY + t * ray.y, startZ + t * ray.z, lightVector, normal2, ks2, kd2, shininess2, t2) &&
+								  t2 < scalarToLight)) {
+
+								double NdotL = dotProduct(normal, lightVector);
+								if (NdotL > 0) {
+									localR += kd[0] * lights[j].color[0] / lightIntensity * NdotL;
+									localG += kd[1] * lights[j].color[1] / lightIntensity * NdotL;
+									localB += kd[2] * lights[j].color[2] / lightIntensity * NdotL;
+								}
+
+								//reflected vector
+								vec3 reflectVector(2 * NdotL * normal.x - lightVector.x,
+												   2 * NdotL * normal.y - lightVector.y,
+												   2 * NdotL * normal.z - lightVector.z);
+								reflectVector.normalize();
+								double VdotR = -dotProduct(ray, reflectVector);
+								if (VdotR > 0) {
+									localR += ks[0] * lights[j].color[0] / lightIntensity * pow(VdotR, shininess);
+									localG += ks[1] * lights[j].color[1] / lightIntensity * pow(VdotR, shininess);
+									localB += ks[2] * lights[j].color[2] / lightIntensity * pow(VdotR, shininess);
+								}
+							}
+						}
+					}
+					/*
 					//light vector
-					vec3 lightVector(lights[j].position[0] - t * ray.x, lights[j].position[1] - t * ray.y, lights[j].position[2] - t * ray.z);
-					double TtoLight = getScalar(lightVector);
+					vec3 lightVector(lights[j].position[0] - (startX + t * ray.x),
+									 lights[j].position[1] - (startY + t * ray.y),
+									 lights[j].position[2] - (startZ + t * ray.z));
+					double scalarToLight = getScalar(lightVector);
 					lightVector.normalize();
 
 					vec3 normal2;
@@ -255,9 +310,8 @@ void draw_scene() {
 					double shininess2 = 0.0;
 					double t2 = 1000.0;
 
-					if (!((sphereIntersection(startX + t * ray.x, startY + t * ray.y, startZ + t * ray.z, lightVector, normal2, ks2, kd2, shininess2, t2) ||
-						   triangleIntersection(startX + t * ray.x, startY + t * ray.y, startZ + t * ray.z, lightVector, normal2, ks2, kd2, shininess2, t2)) &&
-						  t2 < TtoLight)) {
+					if (!(findIntersection(startX + t * ray.x, startY + t * ray.y, startZ + t * ray.z, lightVector, normal2, ks2, kd2, shininess2, t2) &&
+						  t2 < scalarToLight)) {
 
 						double NdotL = dotProduct(normal, lightVector);
 						if (NdotL > 0) {
@@ -277,7 +331,7 @@ void draw_scene() {
 							localG += ks[1] * lights[j].color[1] * pow(VdotR, shininess);
 							localB += ks[2] * lights[j].color[2] * pow(VdotR, shininess);
 						}
-					}
+					}*/
 				}
 
 				if (localR > 1.0) { localR = 1.0; }
@@ -295,67 +349,15 @@ void draw_scene() {
 				ray.z = 2 * NdotV * normal.z + ray.z;
 				ray.normalize();
 
-				t = 1000.0;
+				t = 999.0;
 			}
 
+			if (t == 1000.0)
+				r0 = 1.0, g0 = 1.0, b0 = 1.0;
+			//localR = 1.0, localG = 1.0, localB = 1.0;
+			localR = 0.1, localG = 0.1, localB = 0.1;
 			r0 += localR * prevKs[0], g0 += localG * prevKs[1], b0 += localB * prevKs[2];
-			/*
-			//check intersections
-			if (sphereIntersection(startX, startY, startZ, ray, normal, ks, kd, shininess, t) ||
-				triangleIntersection(startX, startY, startZ, ray, normal, ks, kd, shininess, t)) {
 
-				//ambient light
-				r0 = ambient_light[0], g0 = ambient_light[1], b0 = ambient_light[2];
-
-				//diffuse & specular
-				for (int j = 0; j < num_lights; j++) {
-					//light vector
-					vec3 lightVector(lights[j].position[0] - t * ray.x, lights[j].position[1] - t * ray.y, lights[j].position[2] - t * ray.z);
-					double TtoLight = getScalar(lightVector);
-					lightVector.normalize();
-
-					vec3 normal2;
-					vec3 toLight(lightVector);
-					double kd2[3] = { 0.0,0.0,0.0 };
-					double ks2[3] = { 0.0,0.0,0.0 };
-					double shininess2 = 0.0;
-					double t2 = 1000.0;
-					//check whether block by other objects or not
-					//if (!((sphereIntersection(t * ray.x, t * ray.y, t * ray.z, lightVector, normal2, ks2, kd2, shininess2, t2) ||
-					//	 triangleIntersection(t * ray.x, t * ray.y, t * ray.z, lightVector, normal2, ks2, kd2, shininess2, t2)) &&
-					//	t2 < TtoLight)) {
-
-
-					if (!((sphereIntersection(t * ray.x, t * ray.y, t * ray.z, lightVector, normal, ks, kd, shininess, t) ||
-						   triangleIntersection(t * ray.x, t * ray.y, t * ray.z, lightVector, normal, ks, kd, shininess, t)) &&
-						  t < TtoLight)) {
-
-						double NdotL = dotProduct(normal, lightVector);
-						//printf("%f\n", NdotL);
-						if (NdotL > 0) {
-							r0 += kd[0] * lights[j].color[0] * NdotL;
-							g0 += kd[1] * lights[j].color[1] * NdotL;
-							b0 += kd[2] * lights[j].color[2] * NdotL;
-						}
-
-						//reflected vector
-						vec3 reflectVector(2 * NdotL * normal.x - lightVector.x,
-										   2 * NdotL * normal.y - lightVector.y,
-										   2 * NdotL * normal.z - lightVector.z);
-						reflectVector.normalize();
-						vec3 viewVector(-ray.x, -ray.y, -ray.z);
-						double VdotR = dotProduct(viewVector, reflectVector);
-						if (VdotR > 0) {
-							r0 += ks[0] * lights[j].color[0] * pow(VdotR, shininess);
-							g0 += ks[1] * lights[j].color[1] * pow(VdotR, shininess);
-							b0 += ks[2] * lights[j].color[2] * pow(VdotR, shininess);
-						}
-					}
-					else {
-						//recursion
-					}
-				}
-			}*/
 			if (r0 > 1) { r0 = 1; }
 			if (g0 > 1) { g0 = 1; }
 			if (b0 > 1) { b0 = 1; }
@@ -365,9 +367,10 @@ void draw_scene() {
 			unsigned char b = b0 * 255;
 			plot_pixel(x, y, r, g, b);
 		}
+
+		glEnd();
+		glFlush();
 	}
-	glEnd();
-	glFlush();
 
 	printf("Done!\n"); fflush(stdout);
 }
@@ -576,7 +579,7 @@ int main(int argc, char** argv) {
 	loadScene(argv[1]);
 
 	glutInitDisplayMode(GLUT_RGBA | GLUT_SINGLE);
-	glutInitWindowPosition(500, 200);
+	glutInitWindowPosition(300, 100);
 	glutInitWindowSize(WIDTH, HEIGHT);
 	int window = glutCreateWindow("Ray Tracer");
 	glutDisplayFunc(display);
