@@ -128,16 +128,24 @@ bool triangleIntersection(double x0, double y0, double z0, const vec3& ray, vec3
 				double areaP1P2P = 0.0;
 				double areaP2P3P = 0.0;
 				double areaP1P3P = 0.0;
-				if (areaTotal != 0) {	//same x or y
+				if (areaTotal > 0.001) {	
 					areaP1P2P = abs((x2 - xp) * (y1 - yp) - (y2 - yp) * (x1 - xp));
 					areaP2P3P = abs((x2 - xp) * (y3 - yp) - (y2 - yp) * (x3 - xp));
 					areaP1P3P = abs((x1 - xp) * (y3 - yp) - (y1 - yp) * (x3 - xp));
 				}
-				else {
+				else { //same x or y
 					areaTotal = abs((x2 - x1) * (z3 - z1) - (z2 - z1) * (x3 - x1));
-					areaP1P2P = abs((x2 - xp) * (z1 - zp) - (z2 - zp) * (x1 - xp));
-					areaP2P3P = abs((x2 - xp) * (z3 - zp) - (z2 - zp) * (x3 - xp));
-					areaP1P3P = abs((x1 - xp) * (z3 - zp) - (z1 - zp) * (x3 - xp));
+					if (areaTotal > 0.001) {  //same y
+						areaP1P2P = abs((x2 - xp) * (z1 - zp) - (z2 - zp) * (x1 - xp));
+						areaP2P3P = abs((x2 - xp) * (z3 - zp) - (z2 - zp) * (x3 - xp));
+						areaP1P3P = abs((x1 - xp) * (z3 - zp) - (z1 - zp) * (x3 - xp));
+					}
+					else { //same x
+						areaTotal = abs((y2 - y1) * (z3 - z1) - (z2 - z1) * (y3 - y1));
+						areaP1P2P = abs((y2 - yp) * (z1 - zp) - (z2 - zp) * (y1 - yp));
+						areaP2P3P = abs((y2 - yp) * (z3 - zp) - (z2 - zp) * (y3 - yp));
+						areaP1P3P = abs((y1 - yp) * (z3 - zp) - (z1 - zp) * (y3 - yp));
+					}
 				}
 				//use area difference to do inside test
 				if (abs(areaP1P2P + areaP2P3P + areaP1P3P - areaTotal) < 0.000001) {
@@ -226,7 +234,6 @@ bool findIntersection(double x0, double y0, double z0, const vec3& ray, vec3& no
 void draw_scene() {
 	glPointSize(2.0);
 
-
 	//for every pixel
 	for (unsigned int x = 0; x < WIDTH; x++) {
 		glBegin(GL_POINTS);
@@ -246,7 +253,8 @@ void draw_scene() {
 					double localR = 1.0, localG = 1.0, localB = 1.0;
 
 					// camera position
-					double startX = 0.0, startY = 0.0, startZ = 0.0;
+					double startX = 0.0, startY = 0.1, startZ = 2.6;
+					//double startX = 0.0, startY = 0.0, startZ = 0.0;
 					//generate ray vector
 					vec3 ray(x0, y0, -1.0);
 					ray.normalize();
@@ -259,7 +267,7 @@ void draw_scene() {
 					double prevKs[3] = { 1.0,1.0,1.0 };
 					double shininess = 0.0;
 
-					int reflection = 10;		// how many reflections
+					int reflection = 100;		// how many reflections
 					// while intersect
 					while (reflection && findIntersection(startX, startY, startZ, ray, normal, surfaceNormal, ks, kd, shininess, t)) {
 						--reflection;
@@ -271,7 +279,7 @@ void draw_scene() {
 							//soft shadows
 							vec3 lightVector;
 							//point light becomes lightArea * lightArea area light, each point intensity becomes 1/lightArea * lightArea
-							int lightArea = 1, lightIntensity = pow(lightArea, 2);
+							int lightArea = 13, lightIntensity = pow(lightArea, 2);
 							for (int k = -lightArea / 2; k < (lightArea + 1) / 2; k++) {
 								for (int l = -lightArea / 2; l < (lightArea + 1) / 2; l++) {
 									lightVector.x = lights[j].position[0] + 0.008 * k - (startX + t * ray.x);
@@ -318,8 +326,11 @@ void draw_scene() {
 						if (localG > 1.0) { localG = 1.0; }
 						if (localB > 1.0) { localB = 1.0; }
 
+						//recursive reflection
 						r0 += localR * (1 - ks[0]) * prevKs[0], g0 += localG * (1 - ks[1]) * prevKs[1], b0 += localB * (1 - ks[2]) * prevKs[2];
+						//basic mode
 						//r0 += localR , g0 += localG , b0 += localB ;
+
 						prevKs[0] *= ks[0], prevKs[1] *= ks[1], prevKs[2] *= ks[2];
 						if (std::min(prevKs[0], std::min(prevKs[1], prevKs[2])) < 0.01)
 							break;
